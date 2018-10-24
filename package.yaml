@@ -1,0 +1,23 @@
+name:                fby19
+version:             0.1.0.0
+synopsis:            An implementation of Algorithm W for my talk at f(by) 2019
+#description:
+homepage:            https://github.com/kritzcreek/fby19#readme
+license:             GPLv3
+author:              Christoph Hegemann
+maintainer:          christoph.hegemann1337@gmail.com
+copyright:           2018 Christoph Hegemann
+category:            Compiler
+extra-source-files:
+- README.md
+
+dependencies:
+  - base >= 4.7 && < 5
+  - text
+  - mtl
+  - containers
+
+executables:
+  fby19:
+    source-dirs:      src
+    main:             Main.hs
