@@ -3,7 +3,7 @@ version:             0.1.0.0
 synopsis:            An implementation of Algorithm W for my talk at f(by) 2019
 #description:
 homepage:            https://github.com/kritzcreek/fby19#readme
-license:             GPLv3
+license:             GPL-3
 author:              Christoph Hegemann
 maintainer:          christoph.hegemann1337@gmail.com
 copyright:           2018 Christoph Hegemann
