@@ -128,5 +128,10 @@ infer env@(Environment env') exp = case exp of
     (s1, t1) <- infer (applySubstEnv s0 env) e1
     s2 <- unify (applySubst s1 t0) (TFun t1 tv)
     pure (s2 `composeSubst` s1 `composeSubst` s0, applySubst s2 tv)
-
-  exp -> throwError "not implemented"
+  EAbs n e -> do
+    tv <- newTyVar "a"
+    let tmpEnv = Environment (Map.insert n (Scheme [] tv) env')
+    (s1, t1) <- infer tmpEnv e
+    pure (s1, TFun (applySubst s1 tv) t1)
+  exp ->
+    throwError "not implemented"
