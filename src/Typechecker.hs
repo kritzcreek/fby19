@@ -21,6 +21,8 @@ freeTypeVars ty = case ty of
    Set.singleton var
  TFun t1 t2 ->
    Set.union (freeTypeVars t1) (freeTypeVars t2)
+ _ ->
+   Set.empty
 
 applySubst :: Substitution -> Type -> Type
 applySubst subst ty = case ty of
@@ -132,6 +134,46 @@ infer env@(Environment env') exp = case exp of
     tv <- newTyVar "a"
     let tmpEnv = Environment (Map.insert n (Scheme [] tv) env')
     (s1, t1) <- infer tmpEnv e
+    -- TODO(Christoph): Does this mean we keep a substitution for the
+    -- (now out of scope) lambda argument in the substitution around?
     pure (s1, TFun (applySubst s1 tv) t1)
-  exp ->
-    throwError "not implemented"
+  ELet x e1 e2 -> do
+   (s1, t1) <- infer env e1
+   -- let t' = generalize env (applySubst s1 t1)
+   let t' = Scheme [] (applySubst s1 t1)
+   let tmpEnv = Environment (Map.insert x t' env')
+   (s2, t2) <- infer (applySubstEnv s1 tmpEnv) e2
+   pure (composeSubst s1 s2, t2)
+
+typeInference :: Map Text Scheme -> Exp -> TI Type
+typeInference env exp = do
+  (s, t) <- infer (Environment env) exp
+  pure (applySubst s t)
+
+
+e0  =  ELet "id" (EAbs "x" (EVar "x"))
+        (EVar "id")
+e1  =  ELet "id" (EAbs "x" (EVar "x"))
+        (EApp (EVar "id") (EVar "id"))
+e2  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
+        (EApp (EVar "id") (EVar "id"))
+e3  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
+        (EApp (EApp (EVar "id") (EVar "id")) (ELit (LInt 2)))
+e4  =  ELet "id" (EAbs "x" (EApp (EVar "x") (EVar "x")))
+        (EVar "id")
+e5  =  EAbs "m" (ELet "y" (EVar "m")
+                 (ELet "x" (EApp (EVar "y") (ELit (LBool True)))
+                       (EVar "x")))
+
+e6  =  EApp (ELit (LInt 2)) (ELit (LInt 2))
+
+testTI :: Exp -> IO ()
+testTI e =
+    do  let (res, _) = runTI (typeInference Map.empty e)
+        case res of
+          Left err  ->  putStrLn $ show e ++ "\n " ++ Text.unpack err ++ "\n"
+          Right t   ->  putStrLn $ show e ++ " :: " ++ show t ++ "\n"
+
+main = do
+  _ <- traverse testTI [e0, e1, e2, e3, e4, e5, e6]
+  pure ()
