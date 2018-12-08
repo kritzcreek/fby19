@@ -45,10 +45,12 @@ type Substitution = Map Text Type
 emptySubst :: Substitution
 emptySubst = Map.empty
 
--- | This is much more subtle than it seems. TODO(Christoph) explain
--- why composition is much "simpler" in the math and gets complicated
--- if you always flatten into a single map (hint: invariant is that
--- you never need to use "fix" to apply a substitution)
+-- | This is much more subtle than it seems.
+--
+-- TODO(Christoph) explain why composition is much "simpler" in the
+-- math and gets complicated if you always flatten into a single map
+-- (hint: invariant is that you never need to use "fix" to apply a
+-- substitution)
 composeSubst :: Substitution -> Substitution -> Substitution
 composeSubst s1 s2 = Map.union (Map.map (applySubst s1) s2) s1
 
@@ -93,7 +95,6 @@ instantiate (Scheme vars ty) = do
 varBind :: Text -> Type -> TI Substitution
 varBind var ty
   | ty == TVar var = pure emptySubst
-  -- TODO(Christoph) better error message, remember what the occurs check is
   | Set.member var (freeTypeVars ty) = throwError "occurs check failed"
   | otherwise = pure (Map.singleton var ty)
 
@@ -137,6 +138,8 @@ infer env@(Environment env') exp = case exp of
     (s1, t1) <- infer tmpEnv e
     -- TODO(Christoph): Does this mean we keep a substitution for the
     -- (now out of scope) lambda argument in the substitution around?
+    --
+    -- Answer: Yes it does, but it might be a good idea to explain why
     pure (s1, TFun (applySubst s1 tv) t1)
   ELet x e1 e2 -> do
    (s1, t1) <- infer env e1
