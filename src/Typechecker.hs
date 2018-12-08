@@ -10,7 +10,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import AST (Type(..), Scheme(..), Exp(..), Lit(..))
+import AST (Type(..), Scheme(..), Exp(..), Lit(..), prettyType, prettyScheme)
 
 showT :: Show a => a -> Text
 showT = Text.pack . show
@@ -119,7 +119,6 @@ infer env@(Environment env') exp = case exp of
     Nothing ->
       throwError ("unbound variable: " <> showT var)
     Just ty -> do
-      -- TODO(Christoph) see if we need this without let generalization
       t <- instantiate ty
       pure (emptySubst, t)
   ELit lit ->
@@ -169,10 +168,12 @@ e6  =  EApp (ELit (LInt 2)) (ELit (LInt 2))
 
 testTI :: Exp -> IO ()
 testTI e =
-    do  let (res, _) = runTI (typeInference Map.empty e)
+    do  let (res, _) = runTI (typeInference (Map.fromList [ ("identity", Scheme ["l"] (TFun (TVar "l") (TVar "l")))
+                                                          , ("const", Scheme ["r", "l"] (TFun (TVar "r") (TFun (TVar "l") (TVar "r"))))
+                                                          ]) e)
         case res of
-          Left err  ->  putStrLn $ show e ++ "\n " ++ Text.unpack err ++ "\n"
-          Right t   ->  putStrLn $ show e ++ " :: " ++ show t ++ "\n"
+          Left err -> putStrLn $ show e ++ "\n " ++ Text.unpack err ++ "\n"
+          Right t  -> putStrLn $ show e ++ " :: " ++ Text.unpack (prettyScheme (generalize (Environment Map.empty) t)) ++ "\n"
 
 main = do
   _ <- traverse testTI [e0, e1, e2, e3, e4, e5, e6]
