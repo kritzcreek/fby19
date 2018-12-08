@@ -105,6 +105,8 @@ unify ty1 ty2 = case (ty1, ty2) of
     pure (s1 `composeSubst` s2)
   (TVar u, t) -> varBind u t
   (t, TVar u) -> varBind u t
+  (TInt, TInt) -> pure emptySubst
+  (TBool, TBool) -> pure emptySubst
   (t1, t2) -> throwError ("types do not unify: " <> showT t1 <> " vs. " <> showT t2)
 
 inferLiteral :: Lit -> TI (Substitution, Type)
