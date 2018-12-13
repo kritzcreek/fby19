@@ -7,7 +7,7 @@
 
 * Implementation
   Implementation mixes theory and implementation. We introduce
-  
+
 ** AST datatypes
 
 ** Substitution
@@ -23,9 +23,33 @@
 
 *** Applying a substitution
 
-    When applying a substitution to a type, we replace every occurence of a
-    variable that occurs in the substitution in the given type.
+    When applying a substitution to a type, we replace every
+    occurrence of a variable that occurs in the substitution in the
+    given type.
 
     For example:
 
     applySubstitution [a/Int, b/Int -> Bool] (a -> b) = Int -> Int -> Bool
+
+**** Applying a substitution to a substitution
+
+     Once I can apply a substitution to a type I can also apply it to
+     another substitution by applying it to every mapped type.
+
+     [a/Int, b/Int -> Bool] [c/a -> b] = [c/Int -> Int -> Bool]
+
+*** Composing substitutions
+
+    The math definition is slightly tricky
+** Unification
+   Finding a substitution that makes two type equal. (To be precise, the most general one)
+
+   Eg: a ~ b => [a/Int, b/Int], true but not general enough
+       a ~ b => [a/b]
+
+*** Unification variables
+
+** Generalization/Instantiation
+
+gen: u1 -> u2 => forall a b. a -> b
+inst: forall a b. a -> b => u1 -> u2
