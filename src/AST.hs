@@ -37,9 +37,10 @@ prettyType ty = case ty of
   TVar var -> var
   TInt -> "Int"
   TBool -> "Bool"
-  TFun ty1 ty2 -> 
+  TFun ty1 ty2 ->
     (if isFun ty1 then "(" <> prettyType ty1 <> ")" else prettyType ty1) 
     <> " -> " <> prettyType ty2
 
 prettyScheme :: Scheme -> Text
+prettyScheme (Scheme [] ty) = prettyType ty
 prettyScheme (Scheme vars ty) = "forall " <> unwords vars <> ". " <> prettyType ty

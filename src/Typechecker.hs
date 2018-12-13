@@ -100,15 +100,16 @@ varBind var ty
 
 unify :: Type -> Type -> TI Substitution
 unify ty1 ty2 = case (ty1, ty2) of
+  (TInt, TInt) -> pure emptySubst
+  (TBool, TBool) -> pure emptySubst
+  (TVar u, t) -> varBind u t
+  (t, TVar u) -> varBind u t
   (TFun l r, TFun l' r') -> do
     s1 <- unify l l'
     s2 <- unify (applySubst s1 r) (applySubst s1 r')
     pure (s1 `composeSubst` s2)
-  (TVar u, t) -> varBind u t
-  (t, TVar u) -> varBind u t
-  (TInt, TInt) -> pure emptySubst
-  (TBool, TBool) -> pure emptySubst
-  (t1, t2) -> throwError ("types do not unify: " <> showT t1 <> " vs. " <> showT t2)
+  (t1, t2) ->
+    throwError ("types do not unify: " <> showT t1 <> " vs. " <> showT t2)
 
 inferLiteral :: Lit -> TI (Substitution, Type)
 inferLiteral lit =
@@ -133,7 +134,7 @@ infer env@(Environment env') exp = case exp of
     s2 <- unify (applySubst s1 t0) (TFun t1 tv)
     pure (s2 `composeSubst` s1 `composeSubst` s0, applySubst s2 tv)
   EAbs n e -> do
-    tv <- newTyVar "a"
+    tv <- newTyVar "x"
     let tmpEnv = Environment (Map.insert n (Scheme [] tv) env')
     (s1, t1) <- infer tmpEnv e
     -- TODO(Christoph): Does this mean we keep a substitution for the
@@ -149,37 +150,22 @@ infer env@(Environment env') exp = case exp of
    (s2, t2) <- infer (applySubstEnv s1 tmpEnv) e2
    pure (composeSubst s1 s2, t2)
 
-typeInference :: Map Text Scheme -> Exp -> TI Type
+typeInference :: Environment -> Exp -> TI Type
 typeInference env exp = do
-  (s, t) <- infer (Environment env) exp
+  (s, t) <- infer env exp
   pure (applySubst s t)
 
 
-e0  =  ELet "id" (EAbs "x" (EVar "x"))
-        (EVar "id")
-e1  =  ELet "id" (EAbs "x" (EVar "x"))
-        (EApp (EVar "id") (EVar "id"))
-e2  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
-        (EApp (EVar "id") (EVar "id"))
-e3  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
-        (EApp (EApp (EVar "id") (EVar "id")) (ELit (LInt 2)))
-e4  =  ELet "id" (EAbs "x" (EApp (EVar "x") (EVar "x")))
-        (EVar "id")
-e5  =  EAbs "m" (ELet "y" (EVar "m")
-                 (ELet "x" (EApp (EVar "y") (ELit (LBool True)))
-                       (EVar "x")))
-
-e6  =  EApp (ELit (LInt 2)) (ELit (LInt 2))
+primitives :: Environment
+primitives = Environment (Map.fromList
+  [ ("identity", Scheme ["l"] (TFun (TVar "l") (TVar "l")))
+  , ("const", Scheme ["r", "l"] (TFun (TVar "r") (TFun (TVar "l") (TVar "r"))))
+  , ("add", Scheme [] (TFun TInt (TFun TInt TInt)))
+  ])
 
 testTI :: Exp -> IO ()
-testTI e =
-    do  let (res, _) = runTI (typeInference (Map.fromList [ ("identity", Scheme ["l"] (TFun (TVar "l") (TVar "l")))
-                                                          , ("const", Scheme ["r", "l"] (TFun (TVar "r") (TFun (TVar "l") (TVar "r"))))
-                                                          ]) e)
-        case res of
-          Left err -> putStrLn $ show e ++ "\n " ++ Text.unpack err ++ "\n"
-          Right t  -> putStrLn $ show e ++ " :: " ++ Text.unpack (prettyScheme (generalize (Environment Map.empty) t)) ++ "\n"
-
-main = do
-  _ <- traverse testTI [e0, e1, e2, e3, e4, e5, e6]
-  pure ()
+testTI e = do
+  let (res, _) = runTI (typeInference primitives e)
+  case res of
+    Left err -> putStrLn $ show e ++ "\n " ++ Text.unpack err ++ "\n"
+    Right t  -> putStrLn $ show e ++ " :: " ++ Text.unpack (prettyScheme (generalize (Environment Map.empty) t)) ++ "\n"
