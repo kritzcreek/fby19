@@ -12,17 +12,10 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import AST (Type(..), Scheme(..), Exp(..), Lit(..), prettyType, prettyScheme)
 
-showT :: Show a => a -> Text
-showT = Text.pack . show
+type Substitution = Map Text Type
 
-freeTypeVars :: Type -> Set Text
-freeTypeVars ty = case ty of
- TVar var ->
-   Set.singleton var
- TFun t1 t2 ->
-   Set.union (freeTypeVars t1) (freeTypeVars t2)
- _ ->
-   Set.empty
+emptySubst :: Substitution
+emptySubst = Map.empty
 
 applySubst :: Substitution -> Type -> Type
 applySubst subst ty = case ty of
@@ -32,18 +25,9 @@ applySubst subst ty = case ty of
     TFun (applySubst subst t1) (applySubst subst t2)
   _ -> ty
 
-freeTypeVarsScheme :: Scheme -> Set Text
-freeTypeVarsScheme (Scheme vars t) =
-  Set.difference (freeTypeVars t) (Set.fromList vars)
-
 applySubstScheme :: Substitution -> Scheme -> Scheme
 applySubstScheme subst (Scheme vars t) =
   Scheme vars (applySubst (foldr Map.delete subst vars) t)
-
-type Substitution = Map Text Type
-
-emptySubst :: Substitution
-emptySubst = Map.empty
 
 -- | This is much more subtle than it seems.
 --
@@ -54,24 +38,8 @@ emptySubst = Map.empty
 composeSubst :: Substitution -> Substitution -> Substitution
 composeSubst s1 s2 = Map.union (Map.map (applySubst s1) s2) s1
 
-newtype Environment = Environment (Map Text Scheme)
-
-remove :: Environment -> Text -> Environment
-remove (Environment env) var = Environment (Map.delete var env)
-
-freeTypeVarsEnv :: Environment -> Set Text
-freeTypeVarsEnv (Environment env) = foldMap freeTypeVarsScheme (Map.elems env)
-
-applySubstEnv :: Substitution -> Environment -> Environment
-applySubstEnv subst (Environment env) = Environment (Map.map (applySubstScheme subst) env)
-
-generalize :: Environment -> Type -> Scheme
-generalize env t = Scheme vars t
-  where
-    vars = Set.toList (Set.difference (freeTypeVars t) (freeTypeVarsEnv env))
-
-data TIState = TIState { tiSupply :: Int, tiSubst :: Substitution }
 type TI a = ExceptT Text (State TIState) a
+data TIState = TIState { tiSupply :: Int, tiSubst :: Substitution }
 
 initTIState :: TIState
 initTIState = TIState 0 Map.empty
@@ -79,19 +47,28 @@ initTIState = TIState 0 Map.empty
 runTI :: TI a -> (Either Text a, TIState)
 runTI ti = runState (runExceptT ti) initTIState
 
+-- | Creates a fresh type variable with the given prefix
 newTyVar :: Text -> TI Type
 newTyVar prefix = do
   state (\s ->
     ( TVar (prefix <> showT (tiSupply s))
-    , s { tiSupply = tiSupply s + 1})
-    )
+    , s { tiSupply = tiSupply s + 1}
+    ))
 
-instantiate :: Scheme -> TI Type
-instantiate (Scheme vars ty) = do
-  newVars <- traverse (\_ -> newTyVar "a") vars
-  let subst = Map.fromList (zip vars newVars)
-  pure (applySubst subst ty)
+freeTypeVars :: Type -> Set Text
+freeTypeVars ty = case ty of
+ TVar var ->
+   Set.singleton var
+ TFun t1 t2 ->
+   Set.union (freeTypeVars t1) (freeTypeVars t2)
+ _ ->
+   Set.empty
 
+freeTypeVarsScheme :: Scheme -> Set Text
+freeTypeVarsScheme (Scheme vars t) =
+  Set.difference (freeTypeVars t) (Set.fromList vars)
+
+-- | Creates a fresh unification variable and binds it to the given type
 varBind :: Text -> Type -> TI Substitution
 varBind var ty
   | ty == TVar var = pure emptySubst
@@ -110,6 +87,25 @@ unify ty1 ty2 = case (ty1, ty2) of
     pure (s1 `composeSubst` s2)
   (t1, t2) ->
     throwError ("types do not unify: " <> showT t1 <> " vs. " <> showT t2)
+
+newtype Environment = Environment (Map Text Scheme)
+
+applySubstEnv :: Substitution -> Environment -> Environment
+applySubstEnv subst (Environment env) = Environment (Map.map (applySubstScheme subst) env)
+
+freeTypeVarsEnv :: Environment -> Set Text
+freeTypeVarsEnv (Environment env) = foldMap freeTypeVarsScheme (Map.elems env)
+
+generalize :: Environment -> Type -> Scheme
+generalize env t = Scheme vars t
+  where
+    vars = Set.toList (Set.difference (freeTypeVars t) (freeTypeVarsEnv env))
+
+instantiate :: Scheme -> TI Type
+instantiate (Scheme vars ty) = do
+  newVars <- traverse (\v -> newTyVar v) vars
+  let subst = Map.fromList (zip vars newVars)
+  pure (applySubst subst ty)
 
 inferLiteral :: Lit -> TI (Substitution, Type)
 inferLiteral lit =
@@ -155,7 +151,6 @@ typeInference env exp = do
   (s, t) <- infer env exp
   pure (applySubst s t)
 
-
 primitives :: Environment
 primitives = Environment (Map.fromList
   [ ("identity", Scheme ["l"] (TFun (TVar "l") (TVar "l")))
@@ -169,3 +164,6 @@ testTI e = do
   case res of
     Left err -> putStrLn $ show e ++ "\n " ++ Text.unpack err ++ "\n"
     Right t  -> putStrLn $ show e ++ " :: " ++ Text.unpack (prettyScheme (generalize (Environment Map.empty) t)) ++ "\n"
+
+showT :: Show a => a -> Text
+showT = Text.pack . show

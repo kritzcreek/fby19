@@ -27,8 +27,6 @@
     occurrence of a variable that occurs in the substitution in the
     given type.
 
-    For example:
-
     applySubstitution [a/Int, b/Int -> Bool] (a -> b) = Int -> Int -> Bool
 
 **** Applying a substitution to a substitution
@@ -40,14 +38,34 @@
 
 *** Composing substitutions
 
-    The math definition is slightly tricky
+    Let S and S' be substitutions then their composition for all types
+    t is defined as:
+
+    (S ∘ S') t = S (S' t)
+
 ** Unification
    Finding a substitution that makes two type equal. (To be precise, the most general one)
 
    Eg: a ~ b => [a/Int, b/Int], true but not general enough
        a ~ b => [a/b]
 
-*** Unification variables
+
+*** Free variables
+    A free variable is a variable that is not bound in a Schema. Eg:
+
+    forall a. a -> b -> a
+
+    b is free here
+
+    We'll never surface this kind of type to the user, it's a
+    construct internal to the type checker.
+
+*** Occurs check
+    We cannot allow a variable to be substituted to a type that contains itself. (for obvious infinity reasons)
+
+    For example, we cannot create a substitution like: [x/Int -> x]
+
+*** Unification for our types
 
 ** Generalization/Instantiation
 

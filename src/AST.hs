@@ -19,14 +19,52 @@ data Lit
   deriving (Eq, Ord, Show)
 
 data Type
-  = TVar Text
-  | TInt
+  = TInt
   | TBool
+  | TVar Text
   | TFun Type Type
   deriving (Eq, Ord, Show)
 
 data Scheme = Scheme [Text] Type
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- Ignore from here onwards
 isFun :: Type -> Bool
 isFun ty = case ty of
   TFun _ _ -> True
@@ -38,7 +76,7 @@ prettyType ty = case ty of
   TInt -> "Int"
   TBool -> "Bool"
   TFun ty1 ty2 ->
-    (if isFun ty1 then "(" <> prettyType ty1 <> ")" else prettyType ty1) 
+    (if isFun ty1 then "(" <> prettyType ty1 <> ")" else prettyType ty1)
     <> " -> " <> prettyType ty2
 
 prettyScheme :: Scheme -> Text
