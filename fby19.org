@@ -2,11 +2,30 @@
 
 * Theory
   In this section I introduce type and value level language, and talk about
-  typing judgements. We then take a "break" from theory and
+  typing judgements. We then take a "break" from theory and work on
+  implementation relevant definitions and the implementation itself.
 
 * Implementation
   Implementation mixes theory and implementation. We introduce
   
 ** AST datatypes
 
-** Substitutions
+** Substitution
+
+   A substitution is a mapping from type variables to types.
+
+   In maths we write a substitution that maps the variable a to Int as [a/Int].
+
+   There are two operations involving substitutions:
+
+   - Applying a substitution to a type
+   - Composing two substitutions
+
+*** Applying a substitution
+
+    When applying a substitution to a type, we replace every occurence of a
+    variable that occurs in the substitution in the given type.
+
+    For example:
+
+    applySubstitution [a/Int, b/Int -> Bool] (a -> b) = Int -> Int -> Bool
