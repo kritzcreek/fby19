@@ -27,9 +27,10 @@ applySubst subst ty = case ty of
 
 applySubstScheme :: Substitution -> Scheme -> Scheme
 applySubstScheme subst (Scheme vars t) =
+  -- The fold takes care of name shadowing
   Scheme vars (applySubst (foldr Map.delete subst vars) t)
 
--- | This is much more subtle than it seems.
+-- | This is much more subtle than it seems. (union is left biased)
 --
 -- TODO(Christoph) explain why composition is much "simpler" in the
 -- math and gets complicated if you always flatten into a single map
@@ -52,7 +53,7 @@ newTyVar :: Text -> TI Type
 newTyVar prefix = do
   state (\s ->
     ( TVar (prefix <> showT (tiSupply s))
-    , s { tiSupply = tiSupply s + 1}
+    , s { tiSupply = tiSupply s + 1 }
     ))
 
 freeTypeVars :: Type -> Set Text
@@ -103,7 +104,7 @@ generalize env t = Scheme vars t
 
 instantiate :: Scheme -> TI Type
 instantiate (Scheme vars ty) = do
-  newVars <- traverse (\v -> newTyVar v) vars
+  newVars <- traverse newTyVar vars
   let subst = Map.fromList (zip vars newVars)
   pure (applySubst subst ty)
 
@@ -156,6 +157,8 @@ primitives = Environment (Map.fromList
   [ ("identity", Scheme ["l"] (TFun (TVar "l") (TVar "l")))
   , ("const", Scheme ["r", "l"] (TFun (TVar "r") (TFun (TVar "l") (TVar "r"))))
   , ("add", Scheme [] (TFun TInt (TFun TInt TInt)))
+  , ("gte", Scheme [] (TFun TInt (TFun TInt TBool)))
+  , ("if", Scheme ["l"] (TFun TBool (TFun (TVar "l") (TFun (TVar "l") (TVar "l")))))
   ])
 
 testTI :: Exp -> IO ()
@@ -163,7 +166,7 @@ testTI e = do
   let (res, _) = runTI (typeInference primitives e)
   case res of
     Left err -> putStrLn $ show e ++ "\n " ++ Text.unpack err ++ "\n"
-    Right t  -> putStrLn $ show e ++ " :: " ++ Text.unpack (prettyScheme (generalize (Environment Map.empty) t)) ++ "\n"
+    Right t  -> putStrLn $ "\n" ++ Text.unpack (prettyScheme (generalize (Environment Map.empty) t)) ++ "\n"
 
 showT :: Show a => a -> Text
 showT = Text.pack . show
