@@ -40,10 +40,10 @@ composeSubst :: Substitution -> Substitution -> Substitution
 composeSubst s1 s2 = Map.union (Map.map (applySubst s1) s2) s1
 
 type TI a = ExceptT Text (State TIState) a
-data TIState = TIState { tiSupply :: Int, tiSubst :: Substitution }
+data TIState = TIState { tiSupply :: Int }
 
 initTIState :: TIState
-initTIState = TIState 0 Map.empty
+initTIState = TIState 0
 
 runTI :: TI a -> (Either Text a, TIState)
 runTI ti = runState (runExceptT ti) initTIState
@@ -89,13 +89,13 @@ unify ty1 ty2 = case (ty1, ty2) of
   (t1, t2) ->
     throwError ("types do not unify: " <> showT t1 <> " vs. " <> showT t2)
 
-newtype Environment = Environment (Map Text Scheme)
+type Environment = Map Text Scheme
 
 applySubstEnv :: Substitution -> Environment -> Environment
-applySubstEnv subst (Environment env) = Environment (Map.map (applySubstScheme subst) env)
+applySubstEnv subst env = Map.map (applySubstScheme subst) env
 
 freeTypeVarsEnv :: Environment -> Set Text
-freeTypeVarsEnv (Environment env) = foldMap freeTypeVarsScheme (Map.elems env)
+freeTypeVarsEnv env = foldMap freeTypeVarsScheme (Map.elems env)
 
 generalize :: Environment -> Type -> Scheme
 generalize env t = Scheme vars t
@@ -115,8 +115,8 @@ inferLiteral lit =
     LBool _ -> TBool)
 
 infer :: Environment -> Exp -> TI (Substitution, Type)
-infer env@(Environment env') exp = case exp of
-  EVar var -> case Map.lookup var env' of
+infer env exp = case exp of
+  EVar var -> case Map.lookup var env of
     Nothing ->
       throwError ("unbound variable: " <> showT var)
     Just ty -> do
@@ -124,49 +124,69 @@ infer env@(Environment env') exp = case exp of
       pure (emptySubst, t)
   ELit lit ->
     inferLiteral lit
-  EApp e0 e1 -> do
-    tv <- newTyVar "u"
-    (s0, t0) <- infer env e0
-    (s1, t1) <- infer (applySubstEnv s0 env) e1
-    s2 <- unify (applySubst s1 t0) (TFun t1 tv)
-    pure (s2 `composeSubst` s1 `composeSubst` s0, applySubst s2 tv)
-  EAbs n e -> do
-    tv <- newTyVar "x"
-    let tmpEnv = Environment (Map.insert n (Scheme [] tv) env')
-    (s1, t1) <- infer tmpEnv e
+  EApp fun arg -> do
+    (s0, tyFun) <- infer env fun
+    (s1, tyArg) <- infer (applySubstEnv s0 env) arg
+    tyRes <- newTyVar "u"
+    s2 <- unify (applySubst s1 tyFun) (TFun tyArg tyRes)
+    pure (s2 `composeSubst` s1 `composeSubst` s0, applySubst s2 tyRes)
+  EAbs binder body -> do
+    tyBinder <- newTyVar "u"
+    let tmpEnv = Map.insert binder (Scheme [] tyBinder) env
+    (s1, tyBody) <- infer tmpEnv body
     -- TODO(Christoph): Does this mean we keep a substitution for the
     -- (now out of scope) lambda argument in the substitution around?
     --
     -- Answer: Yes it does, but it might be a good idea to explain why
-    pure (s1, TFun (applySubst s1 tv) t1)
-  ELet x e1 e2 -> do
-   (s1, t1) <- infer env e1
-   -- let t' = generalize env (applySubst s1 t1)
-   let t' = Scheme [] (applySubst s1 t1)
-   let tmpEnv = Environment (Map.insert x t' env')
-   (s2, t2) <- infer (applySubstEnv s1 tmpEnv) e2
-   pure (composeSubst s1 s2, t2)
+    pure (s1, TFun (applySubst s1 tyBinder) tyBody)
+  ELet binder binding body -> do
+    (s1, tyBinder) <- infer env binding
+    -- let t' = generalize env (applySubst s1 t1)
+    let t' = Scheme [] (applySubst s1 tyBinder)
+    let tmpEnv = Map.insert binder t' env
+    (s2, tyBody) <- infer (applySubstEnv s1 tmpEnv) body
+    pure (composeSubst s1 s2, tyBody)
 
+{- Inference without plumbing
+EApp fun arg -> do
+  tyFun <- infer env fun
+  tyArg <- infer env arg
+  tyRes <- newTyVar "res"
+  unify tyFun (TFun tyArg tyRes)
+  pure tyRes
+
+EAbs binder body -> do
+   tyBinder <- newTyVar "x"
+   let tmpEnv = Map.insert binder (Scheme [] tyBinder) env
+   tyBody <- infer tmpEnv body
+   pure (TFun tyArg tyBody)
+
+ELet binder binding body -> do
+  tyBinder <- infer env binding
+  let tmpEnv = Environment (Map.insert binder (Scheme [] tyBinder) env')
+  tyBody <- infer tmpEnv body
+  pure tyBody
+-}
 typeInference :: Environment -> Exp -> TI Type
 typeInference env exp = do
   (s, t) <- infer env exp
   pure (applySubst s t)
 
 primitives :: Environment
-primitives = Environment (Map.fromList
+primitives = Map.fromList
   [ ("identity", Scheme ["l"] (TFun (TVar "l") (TVar "l")))
   , ("const", Scheme ["r", "l"] (TFun (TVar "r") (TFun (TVar "l") (TVar "r"))))
   , ("add", Scheme [] (TFun TInt (TFun TInt TInt)))
   , ("gte", Scheme [] (TFun TInt (TFun TInt TBool)))
   , ("if", Scheme ["l"] (TFun TBool (TFun (TVar "l") (TFun (TVar "l") (TVar "l")))))
-  ])
+  ]
 
 testTI :: Exp -> IO ()
 testTI e = do
   let (res, _) = runTI (typeInference primitives e)
   case res of
     Left err -> putStrLn $ show e ++ "\n " ++ Text.unpack err ++ "\n"
-    Right t  -> putStrLn $ "\n" ++ Text.unpack (prettyScheme (generalize (Environment Map.empty) t)) ++ "\n"
+    Right t  -> putStrLn $ "\n" ++ Text.unpack (prettyScheme (generalize Map.empty t)) ++ "\n"
 
 showT :: Show a => a -> Text
 showT = Text.pack . show
