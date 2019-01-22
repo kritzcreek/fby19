@@ -1,6 +1,7 @@
 {-# language OverloadedStrings #-}
 module Typechecker where
 
+import Control.Monad (replicateM)
 import Control.Monad.State (State, runState, get, gets, modify, state)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Data.Maybe (fromMaybe)
@@ -48,11 +49,11 @@ initTIState = TIState 0
 runTI :: TI a -> (Either Text a, TIState)
 runTI ti = runState (runExceptT ti) initTIState
 
--- | Creates a fresh type variable with the given prefix
-newTyVar :: Text -> TI Type
-newTyVar prefix = do
+-- | Creates a fresh type variable
+newTyVar :: TI Type
+newTyVar = do
   state (\s ->
-    ( TVar (prefix <> showT (tiSupply s))
+    ( TVar ("u" <> showT (tiSupply s))
     , s { tiSupply = tiSupply s + 1 }
     ))
 
@@ -104,7 +105,7 @@ generalize env t = Scheme vars t
 
 instantiate :: Scheme -> TI Type
 instantiate (Scheme vars ty) = do
-  newVars <- traverse newTyVar vars
+  newVars <- replicateM (length vars) newTyVar
   let subst = Map.fromList (zip vars newVars)
   pure (applySubst subst ty)
 
@@ -127,11 +128,11 @@ infer env exp = case exp of
   EApp fun arg -> do
     (s0, tyFun) <- infer env fun
     (s1, tyArg) <- infer (applySubstEnv s0 env) arg
-    tyRes <- newTyVar "u"
+    tyRes <- newTyVar
     s2 <- unify (applySubst s1 tyFun) (TFun tyArg tyRes)
     pure (s2 `composeSubst` s1 `composeSubst` s0, applySubst s2 tyRes)
   EAbs binder body -> do
-    tyBinder <- newTyVar "u"
+    tyBinder <- newTyVar
     let tmpEnv = Map.insert binder (Scheme [] tyBinder) env
     (s1, tyBody) <- infer tmpEnv body
     -- TODO(Christoph): Does this mean we keep a substitution for the
