@@ -2,7 +2,7 @@
 module Typechecker where
 
 import Control.Monad (replicateM)
-import Control.Monad.State (State, runState, get, gets, modify, state)
+import Control.Monad.State (State, runState, get, put, gets, modify)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Data.Maybe (fromMaybe)
 import Data.Map (Map)
@@ -21,10 +21,11 @@ emptySubst = Map.empty
 applySubst :: Substitution -> Type -> Type
 applySubst subst ty = case ty of
   TVar var ->
-    fromMaybe ty (Map.lookup var subst)
+    fromMaybe (TVar var) (Map.lookup var subst)
   TFun t1 t2 ->
     TFun (applySubst subst t1) (applySubst subst t2)
-  _ -> ty
+  TInt -> TInt
+  TBool -> TBool
 
 applySubstScheme :: Substitution -> Scheme -> Scheme
 applySubstScheme subst (Scheme vars t) =
@@ -40,22 +41,17 @@ applySubstScheme subst (Scheme vars t) =
 composeSubst :: Substitution -> Substitution -> Substitution
 composeSubst s1 s2 = Map.union (Map.map (applySubst s1) s2) s1
 
-type TI a = ExceptT Text (State TIState) a
-data TIState = TIState { tiSupply :: Int }
+type TI a = ExceptT Text (State Int) a
 
-initTIState :: TIState
-initTIState = TIState 0
-
-runTI :: TI a -> (Either Text a, TIState)
-runTI ti = runState (runExceptT ti) initTIState
+runTI :: TI a -> (Either Text a, Int)
+runTI ti = runState (runExceptT ti) 0
 
 -- | Creates a fresh type variable
 newTyVar :: TI Type
 newTyVar = do
-  state (\s ->
-    ( TVar ("u" <> showT (tiSupply s))
-    , s { tiSupply = tiSupply s + 1 }
-    ))
+  s <- get
+  put (s + 1)
+  pure (TVar ("u" <> showT s))
 
 freeTypeVars :: Type -> Set Text
 freeTypeVars ty = case ty of
@@ -90,18 +86,18 @@ unify ty1 ty2 = case (ty1, ty2) of
   (t1, t2) ->
     throwError ("types do not unify: " <> showT t1 <> " vs. " <> showT t2)
 
-type Environment = Map Text Scheme
+type Context = Map Text Scheme
 
-applySubstEnv :: Substitution -> Environment -> Environment
-applySubstEnv subst env = Map.map (applySubstScheme subst) env
+applySubstCtx :: Substitution -> Context -> Context
+applySubstCtx subst ctx = Map.map (applySubstScheme subst) ctx
 
-freeTypeVarsEnv :: Environment -> Set Text
-freeTypeVarsEnv env = foldMap freeTypeVarsScheme (Map.elems env)
+freeTypeVarsCtx :: Context -> Set Text
+freeTypeVarsCtx ctx = foldMap freeTypeVarsScheme (Map.elems ctx)
 
-generalize :: Environment -> Type -> Scheme
-generalize env t = Scheme vars t
+generalize :: Context -> Type -> Scheme
+generalize ctx t = Scheme vars t
   where
-    vars = Set.toList (Set.difference (freeTypeVars t) (freeTypeVarsEnv env))
+    vars = Set.toList (Set.difference (freeTypeVars t) (freeTypeVarsCtx ctx))
 
 instantiate :: Scheme -> TI Type
 instantiate (Scheme vars ty) = do
@@ -115,9 +111,9 @@ inferLiteral lit =
     LInt _ -> TInt
     LBool _ -> TBool)
 
-infer :: Environment -> Exp -> TI (Substitution, Type)
-infer env exp = case exp of
-  EVar var -> case Map.lookup var env of
+infer :: Context -> Exp -> TI (Substitution, Type)
+infer ctx exp = case exp of
+  EVar var -> case Map.lookup var ctx of
     Nothing ->
       throwError ("unbound variable: " <> showT var)
     Just ty -> do
@@ -126,54 +122,54 @@ infer env exp = case exp of
   ELit lit ->
     inferLiteral lit
   EApp fun arg -> do
-    (s0, tyFun) <- infer env fun
-    (s1, tyArg) <- infer (applySubstEnv s0 env) arg
+    (s0, tyFun) <- infer ctx fun
+    (s1, tyArg) <- infer (applySubstCtx s0 ctx) arg
     tyRes <- newTyVar
     s2 <- unify (applySubst s1 tyFun) (TFun tyArg tyRes)
     pure (s2 `composeSubst` s1 `composeSubst` s0, applySubst s2 tyRes)
   EAbs binder body -> do
     tyBinder <- newTyVar
-    let tmpEnv = Map.insert binder (Scheme [] tyBinder) env
-    (s1, tyBody) <- infer tmpEnv body
+    let tmpCtx = Map.insert binder (Scheme [] tyBinder) ctx
+    (s1, tyBody) <- infer tmpCtx body
     -- TODO(Christoph): Does this mean we keep a substitution for the
     -- (now out of scope) lambda argument in the substitution around?
     --
     -- Answer: Yes it does, but it might be a good idea to explain why
     pure (s1, TFun (applySubst s1 tyBinder) tyBody)
   ELet binder binding body -> do
-    (s1, tyBinder) <- infer env binding
-    -- let t' = generalize env (applySubst s1 t1)
+    (s1, tyBinder) <- infer ctx binding
+    -- let t' = generalize ctx (applySubst s1 t1)
     let t' = Scheme [] (applySubst s1 tyBinder)
-    let tmpEnv = Map.insert binder t' env
-    (s2, tyBody) <- infer (applySubstEnv s1 tmpEnv) body
+    let tmpCtx = Map.insert binder t' ctx
+    (s2, tyBody) <- infer (applySubstCtx s1 tmpCtx) body
     pure (composeSubst s1 s2, tyBody)
 
 {- Inference without plumbing
 EApp fun arg -> do
-  tyFun <- infer env fun
-  tyArg <- infer env arg
+  tyFun <- infer ctx fun
+  tyArg <- infer ctx arg
   tyRes <- newTyVar "res"
   unify tyFun (TFun tyArg tyRes)
   pure tyRes
 
 EAbs binder body -> do
    tyBinder <- newTyVar "x"
-   let tmpEnv = Map.insert binder (Scheme [] tyBinder) env
-   tyBody <- infer tmpEnv body
+   let tmpCtx = Map.insert binder (Scheme [] tyBinder) ctx
+   tyBody <- infer tmpCtx body
    pure (TFun tyArg tyBody)
 
 ELet binder binding body -> do
-  tyBinder <- infer env binding
-  let tmpEnv = Environment (Map.insert binder (Scheme [] tyBinder) env')
-  tyBody <- infer tmpEnv body
+  tyBinder <- infer ctx binding
+  let tmpCtx = Context (Map.insert binder (Scheme [] tyBinder) ctx')
+  tyBody <- infer tmpCtx body
   pure tyBody
 -}
-typeInference :: Environment -> Exp -> TI Type
-typeInference env exp = do
-  (s, t) <- infer env exp
+typeInference :: Context -> Exp -> TI Type
+typeInference ctx exp = do
+  (s, t) <- infer ctx exp
   pure (applySubst s t)
 
-primitives :: Environment
+primitives :: Context
 primitives = Map.fromList
   [ ("identity", Scheme ["l"] (TFun (TVar "l") (TVar "l")))
   , ("const", Scheme ["r", "l"] (TFun (TVar "r") (TFun (TVar "l") (TVar "r"))))
