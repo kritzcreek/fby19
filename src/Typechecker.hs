@@ -13,6 +13,8 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import AST (Type(..), Scheme(..), Exp(..), Lit(..), prettyType, prettyScheme)
 
+import Debug.Trace
+
 type Substitution = Map Text Type
 
 emptySubst :: Substitution
@@ -74,17 +76,16 @@ varBind var ty
   | otherwise = pure (Map.singleton var ty)
 
 unify :: Type -> Type -> TI Substitution
-unify ty1 ty2 = case (ty1, ty2) of
-  (TInt, TInt) -> pure emptySubst
-  (TBool, TBool) -> pure emptySubst
-  (TVar u, t) -> varBind u t
-  (t, TVar u) -> varBind u t
-  (TFun l r, TFun l' r') -> do
-    s1 <- unify l l'
-    s2 <- unify (applySubst s1 r) (applySubst s1 r')
-    pure (s1 `composeSubst` s2)
-  (t1, t2) ->
-    throwError ("types do not unify: " <> showT t1 <> " vs. " <> showT t2)
+unify TInt TInt = pure emptySubst
+unify TBool TBool = pure emptySubst
+unify (TFun l r) (TFun l' r') = do
+  s1 <- unify l l'
+  s2 <- unify (applySubst s1 r) (applySubst s1 r')
+  pure (s1 `composeSubst` s2)
+unify (TVar u) t = varBind u t
+unify t (TVar u) = varBind u t
+unify t1 t2 =
+  throwError ("types do not unify: " <> showT t1 <> " vs. " <> showT t2)
 
 type Context = Map Text Scheme
 
@@ -101,7 +102,7 @@ generalize ctx t = Scheme vars t
 
 instantiate :: Scheme -> TI Type
 instantiate (Scheme vars ty) = do
-  newVars <- replicateM (length vars) newTyVar
+  newVars <- traverse (const newTyVar) vars
   let subst = Map.fromList (zip vars newVars)
   pure (applySubst subst ty)
 
@@ -139,8 +140,8 @@ infer ctx exp = case exp of
   ELet binder binding body -> do
     (s1, tyBinder) <- infer ctx binding
     -- let t' = generalize ctx (applySubst s1 t1)
-    let t' = Scheme [] (applySubst s1 tyBinder)
-    let tmpCtx = Map.insert binder t' ctx
+    let scheme = Scheme [] (applySubst s1 tyBinder)
+    let tmpCtx = Map.insert binder scheme ctx
     (s2, tyBody) <- infer (applySubstCtx s1 tmpCtx) body
     pure (composeSubst s1 s2, tyBody)
 
@@ -148,7 +149,7 @@ infer ctx exp = case exp of
 EApp fun arg -> do
   tyFun <- infer ctx fun
   tyArg <- infer ctx arg
-  tyRes <- newTyVar "res"
+  tyRes <- newTyVar
   unify tyFun (TFun tyArg tyRes)
   pure tyRes
 
@@ -160,7 +161,7 @@ EAbs binder body -> do
 
 ELet binder binding body -> do
   tyBinder <- infer ctx binding
-  let tmpCtx = Context (Map.insert binder (Scheme [] tyBinder) ctx')
+  let tmpCtx = Map.insert binder (Scheme [] tyBinder) ctx
   tyBody <- infer tmpCtx body
   pure tyBody
 -}
