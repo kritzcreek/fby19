@@ -113,9 +113,9 @@ infer ctx exp = case exp of
   EVar var -> case Map.lookup var ctx of
     Nothing ->
       throwError ("unbound variable: " <> showT var)
-    Just ty -> do
-      t <- instantiate ty
-      pure (emptySubst, t)
+    Just scheme -> do
+      ty <- instantiate scheme
+      pure (emptySubst, ty)
   ELit lit ->
     inferLiteral lit
   EApp fun arg -> do
