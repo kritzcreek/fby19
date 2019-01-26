@@ -76,7 +76,7 @@ abs_ = do
   void (symbol "\\")
   var <- identifier
   (symbol "->")
-  EAbs (Text.pack var) <$> expr
+  ELam (Text.pack var) <$> expr
 
 lit_ = ELit <$> (
   LInt <$> integer

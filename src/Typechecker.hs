@@ -24,8 +24,8 @@ applySubst :: Substitution -> Type -> Type
 applySubst subst ty = case ty of
   TVar var ->
     fromMaybe (TVar var) (Map.lookup var subst)
-  TFun t1 t2 ->
-    TFun (applySubst subst t1) (applySubst subst t2)
+  TFun arg res ->
+    TFun (applySubst subst arg) (applySubst subst res)
   TInt -> TInt
   TBool -> TBool
 
@@ -36,10 +36,6 @@ applySubstScheme subst (Scheme vars t) =
 
 -- | This is much more subtle than it seems. (union is left biased)
 --
--- TODO(Christoph) explain why composition is much "simpler" in the
--- math and gets complicated if you always flatten into a single map
--- (hint: invariant is that you never need to use "fix" to apply a
--- substitution)
 composeSubst :: Substitution -> Substitution -> Substitution
 composeSubst s1 s2 = Map.union (Map.map (applySubst s1) s2) s1
 
@@ -123,48 +119,24 @@ infer ctx exp = case exp of
   ELit lit ->
     inferLiteral lit
   EApp fun arg -> do
-    (s0, tyFun) <- infer ctx fun
-    (s1, tyArg) <- infer (applySubstCtx s0 ctx) arg
     tyRes <- newTyVar
-    s2 <- unify (applySubst s1 tyFun) (TFun tyArg tyRes)
-    pure (s2 `composeSubst` s1 `composeSubst` s0, applySubst s2 tyRes)
-  EAbs binder body -> do
+    (s1, tyFun) <- infer ctx fun
+    (s2, tyArg) <- infer (applySubstCtx s1 ctx) arg
+    s3 <- unify (applySubst s2 tyFun) (TFun tyArg tyRes)
+    pure (s3 `composeSubst` s2 `composeSubst` s1, applySubst s3 tyRes)
+  ELam binder body -> do
     tyBinder <- newTyVar
     let tmpCtx = Map.insert binder (Scheme [] tyBinder) ctx
     (s1, tyBody) <- infer tmpCtx body
-    -- TODO(Christoph): Does this mean we keep a substitution for the
-    -- (now out of scope) lambda argument in the substitution around?
-    --
-    -- Answer: Yes it does, but it might be a good idea to explain why
     pure (s1, TFun (applySubst s1 tyBinder) tyBody)
   ELet binder binding body -> do
     (s1, tyBinder) <- infer ctx binding
-    -- let t' = generalize ctx (applySubst s1 t1)
+    -- let scheme = generalize ctx (applySubst s1 t1)
     let scheme = Scheme [] (applySubst s1 tyBinder)
     let tmpCtx = Map.insert binder scheme ctx
     (s2, tyBody) <- infer (applySubstCtx s1 tmpCtx) body
     pure (composeSubst s1 s2, tyBody)
 
-{- Inference without plumbing
-EApp fun arg -> do
-  tyFun <- infer ctx fun
-  tyArg <- infer ctx arg
-  tyRes <- newTyVar
-  unify tyFun (TFun tyArg tyRes)
-  pure tyRes
-
-EAbs binder body -> do
-   tyBinder <- newTyVar "x"
-   let tmpCtx = Map.insert binder (Scheme [] tyBinder) ctx
-   tyBody <- infer tmpCtx body
-   pure (TFun tyArg tyBody)
-
-ELet binder binding body -> do
-  tyBinder <- infer ctx binding
-  let tmpCtx = Map.insert binder (Scheme [] tyBinder) ctx
-  tyBody <- infer tmpCtx body
-  pure tyBody
--}
 typeInference :: Context -> Exp -> TI Type
 typeInference ctx exp = do
   (s, t) <- infer ctx exp
@@ -172,11 +144,11 @@ typeInference ctx exp = do
 
 primitives :: Context
 primitives = Map.fromList
-  [ ("identity", Scheme ["l"] (TFun (TVar "l") (TVar "l")))
-  , ("const", Scheme ["r", "l"] (TFun (TVar "r") (TFun (TVar "l") (TVar "r"))))
+  [ ("identity", Scheme ["a"] (TFun (TVar "a") (TVar "a")))
+  , ("const", Scheme ["a", "b"] (TFun (TVar "a") (TFun (TVar "b") (TVar "a"))))
   , ("add", Scheme [] (TFun TInt (TFun TInt TInt)))
   , ("gte", Scheme [] (TFun TInt (TFun TInt TBool)))
-  , ("if", Scheme ["l"] (TFun TBool (TFun (TVar "l") (TFun (TVar "l") (TVar "l")))))
+  , ("if", Scheme ["a"] (TFun TBool (TFun (TVar "a") (TFun (TVar "a") (TVar "a")))))
   ]
 
 testTI :: Exp -> IO ()

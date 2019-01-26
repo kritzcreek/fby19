@@ -10,7 +10,7 @@ data Exp
   = EVar Text
   | ELit Lit
   | EApp Exp Exp
-  | EAbs Text Exp
+  | ELam Text Exp
   | ELet Text Exp Exp
   deriving (Eq, Ord, Show)
 
