@@ -77,7 +77,7 @@ unify TBool TBool = pure emptySubst
 unify (TFun l r) (TFun l' r') = do
   s1 <- unify l l'
   s2 <- unify (applySubst s1 r) (applySubst s1 r')
-  pure (s1 `composeSubst` s2)
+  pure (s2 `composeSubst` s1)
 unify (TVar u) t = varBind u t
 unify t (TVar u) = varBind u t
 unify t1 t2 =
@@ -135,7 +135,7 @@ infer ctx exp = case exp of
     let scheme = Scheme [] (applySubst s1 tyBinder)
     let tmpCtx = Map.insert binder scheme ctx
     (s2, tyBody) <- infer (applySubstCtx s1 tmpCtx) body
-    pure (composeSubst s1 s2, tyBody)
+    pure (s2 `composeSubst` s1, tyBody)
 
 typeInference :: Context -> Exp -> TI Type
 typeInference ctx exp = do
